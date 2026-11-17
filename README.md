@@ -78,12 +78,38 @@ Yo'l-yo'lakay yana ikkita nuqson tuzatildi:
 - bo'sh maydonlar ham "ishonchsiz" deb belgilanardi — operator uchun ma'nosiz,
   endi faqat to'ldirilganlari belgilanadi
 
+## Uchinchi topilma: qiyshiq yozuvni burish
+
+Qo'lda yozilgan qog'oz suratga qiyshiq tushadi va model adashadi. O'lchandi —
+bir xil surat, har xil burchak:
+
+| Burchak | O'qilgan |
+|---|---|
+| 0° (asl) | `Toshkent shato Rustaveli 412` |
+| 35° | `Toshkent Shota Rustaveli 112` ← to'g'ri |
+| −35° | `Toshkent shota Rustaveli` (raqamsiz) |
+
+To'g'ri burchakni oldindan bilib bo'lmaydi. Shuning uchun **qo'lyozma
+aniqlanganda** surat bir necha burchakda o'qiladi, har biri alohida
+tartiblanadi va natijalar **kodda ovoz berish** bilan birlashtiriladi:
+
+- hamma o'qishda bir xil chiqqan maydon — ishonchli
+- farq qilgan maydon — eng ko'p uchragani olinadi va *tekshirilsin* deb belgilanadi
+- ovoz teng bo'lsa — eng to'liq (uzun) variant tanlanadi
+
+Birlashtirishni ham avval modeldan so'radim — bo'sh javob qaytardi. Kodga
+ko'chirildi. Bu ikkinchi marta: **determinizm kerak bo'lgan joyda modelga
+tayanmaslik kerak.**
+
+Bosma matnda qo'shimcha o'qish qilinmaydi — tez qoladi. Burchaklar
+`DESKEW_ANGLES` bilan sozlanadi, bo'sh qoldirilsa butunlay o'chadi.
+
 ## Natijalar
 
 | Surat | Maydon | Vaqt | Ishonchsizlik |
 |---|---|---|---|
-| Bosma yorliq | 9/9 to'g'ri | ~17 s | yo'q (to'g'ri) |
-| Qo'lyozma, qiyshiq, soyada | 3/3 to'g'ri | ~10 s | uchalasi belgilangan (to'g'ri) |
+| Bosma yorliq | 9/9 to'g'ri | ~16 s | yo'q (to'g'ri) |
+| Qo'lyozma, ~40° qiyshiq, soyada | 3/3 to'g'ri joyda | ~26 s | manzil belgilangan (to'g'ri — o'qishlar farq qildi) |
 
 Qo'lyozmada 3/9 — bu kamchilik emas: o'sha qog'ozda jo'natuvchi, trek raqami va
 og'irlik umuman yo'q edi.
@@ -145,7 +171,8 @@ curl -F "file=@samples/label.jpg" http://localhost:8000/api/extract
 |---|---|---|
 | `VISION_PROVIDER` | `ollama` | `ollama` yoki `claude` |
 | `OLLAMA_MODEL` | `qwen2.5vl:3b` | Kattaroq model: `qwen2.5vl:7b` |
-| `OLLAMA_TIMEOUT` | `120` | Soniya |
+| `OLLAMA_TIMEOUT` | `180` | Soniya |
+| `DESKEW_ANGLES` | `35,-35` | Qo'lyozmada qo'shimcha o'qish burchaklari (bo'sh = o'chiq) |
 | `ANTHROPIC_API_KEY` | — | Faqat `claude` provayderi uchun |
 | `DB_PATH` | `data/extractions.db` | SQLite fayli |
 

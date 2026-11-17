@@ -12,12 +12,16 @@ Ikkinchi bosqich rasmsiz bo'lgani uchun tezroq va barqarorroq.
 import base64
 import json
 import os
-from typing import Any, Dict
+from collections import Counter
+from typing import Any, Dict, List
 
 import httpx
 
 from app.providers.base import VisionError, VisionProvider
-from app.providers.prompt import READ_PROMPT, STRUCTURE_SYSTEM, STRUCTURE_USER
+from app.imaging import variants
+from app.providers.prompt import (
+    READ_PROMPT, RECONCILE_USER, STRUCTURE_SYSTEM, STRUCTURE_USER,
+)
 from app.schema import FIELDS, LabelData, llm_schema
 
 
@@ -28,6 +32,10 @@ class OllamaProvider(VisionProvider):
         self.host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
         self._model = os.getenv("OLLAMA_MODEL", "qwen2.5vl:7b")
         self.timeout = float(os.getenv("OLLAMA_TIMEOUT", "180"))
+        # Qo'lyozma aniqlansa shu burchaklarda qayta o'qiladi.
+        # Bosma matnda qo'shimcha o'qish qilinmaydi — tez qoladi.
+        raw = os.getenv("DESKEW_ANGLES", "35,-35").strip()
+        self.deskew = [int(a) for a in raw.split(",") if a.strip()] if raw else []
 
     @property
     def model(self) -> str:
@@ -74,8 +82,9 @@ class OllamaProvider(VisionProvider):
         }, "o'qish")
         return self._clean(raw)
 
-    async def _structure(self, text: str) -> LabelData:
+    async def _structure(self, text=None, user=None) -> LabelData:
         """2-bosqich: o'qilgan matnni sxemaga solish (rasmsiz)."""
+        user = user or STRUCTURE_USER.format(text=text)
         content = await self._chat({
             "model": self._model,
             "stream": False,
@@ -83,7 +92,7 @@ class OllamaProvider(VisionProvider):
             "options": {"temperature": 0},
             "messages": [
                 {"role": "system", "content": STRUCTURE_SYSTEM},
-                {"role": "user", "content": STRUCTURE_USER.format(text=text)},
+                {"role": "user", "content": user},
             ],
         }, "tartiblash")
 
@@ -93,22 +102,65 @@ class OllamaProvider(VisionProvider):
             raise VisionError(f"[tartiblash] Javobni sxemaga moslab bo'lmadi: {e}") from e
 
     async def extract(self, image_bytes: bytes, mime_type: str) -> LabelData:
-        text = await self._read_text(base64.b64encode(image_bytes).decode())
+        text, handwritten = self._split_marker(
+            await self._read_text(base64.b64encode(image_bytes).decode())
+        )
 
-        # Qo'lyozma aniqlanishi -> ishonchsizlik belgisi KODDA qo'yiladi.
-        # Avval buni modeldan so'radim: ko'rsatmada aniq yozilgan bo'lsa ham
-        # bajarmadi. Kafolat kerak bo'lgan qoidani modelga ishonib bo'lmaydi.
-        handwritten = False
-        kept = []
+        # Bosma matn: bitta o'qish yetarli.
+        if not (handwritten and self.deskew):
+            data = await self._structure(text)
+            if handwritten:
+                data.uncertain_fields = [f for f in FIELDS if getattr(data, f)]
+            return data
+
+        # Qo'lyozma: qiyshiq yozuv yomon o'qiladi. To'g'ri burchak noma'lum,
+        # shuning uchun bir nechta burchakda o'qib, HAR BIRINI alohida
+        # tartiblaymiz va natijalarni KODDA ovoz berish bilan birlashtiramiz.
+        #
+        # Avval birlashtirishni modeldan so'radim — bo'sh javob qaytardi.
+        # Determinizm kerak bo'lgan joyda modelga tayanmaslik kerak.
+        results = [await self._structure(text)]
+        for _, data_bytes in variants(image_bytes, self.deskew):
+            raw = await self._read_text(base64.b64encode(data_bytes).decode())
+            body, _ = self._split_marker(raw)
+            if body.strip():
+                results.append(await self._structure(body))
+        return self._vote(results)
+
+    @staticmethod
+    def _vote(results: List[LabelData]) -> LabelData:
+        """Bir nechta o'qish natijasini maydon bo'yicha ovoz berish bilan birlashtiradi.
+
+        Hamma variant bir xil desa — ishonchli. Farq qilsa — eng ko'p
+        uchragani olinadi va maydon operator uchun belgilanadi.
+        """
+        merged: Dict[str, Any] = {}
+        uncertain: List[str] = []
+        for field in FIELDS:
+            values = [v for r in results if (v := getattr(r, field))]
+            if not values:
+                continue
+            counts = Counter(values)
+            top = max(counts.values())
+            # Ovoz teng bo'lsa — eng to'liq (uzun) o'qishni tanlaymiz:
+            # qisqasi odatda yarim o'qilgan variant bo'ladi.
+            best = max((v for v, c in counts.items() if c == top), key=len)
+            hits = top
+            merged[field] = best
+            # Hamma o'qishda bir xil chiqmagan bo'lsa — tekshirilsin
+            if hits < len(results):
+                uncertain.append(field)
+        merged["uncertain_fields"] = uncertain
+        return LabelData.model_validate(merged)
+
+    @staticmethod
+    def _split_marker(text: str) -> tuple:
+        """Matndan qo'lyozma belgisini ajratib oladi."""
+        handwritten, kept = False, []
         for ln in text.splitlines():
             flat = ln.strip().upper().replace("'", "").replace("\u2019", "")
             if flat in {"QOLYOZMA", "YOZUV: QOLYOZMA", "YOZUV: BOSMA"}:
                 handwritten = "QOLYOZMA" in flat
-                continue          # belgi qatori 2-bosqichga o'tmaydi
+                continue
             kept.append(ln)
-        text = "\n".join(kept).strip()
-
-        data = await self._structure(text)
-        if handwritten:
-            data.uncertain_fields = [f for f in FIELDS if getattr(data, f)]
-        return data
+        return "\n".join(kept).strip(), handwritten

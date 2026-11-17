@@ -55,3 +55,20 @@ USER_PROMPT = (
     "Ushbu pochta yorlig'idan maydonlarni ajratib ol. "
     "Telefon raqamlarini suratdagidek, o'zgartirmasdan yoz."
 )
+
+
+# --- Qo'lyozma: bir nechta o'qishni solishtirish ---
+RECONCILE_USER = (
+    "Quyida BIR XIL qog'oz bir necha marta, har xil burchakdan o'qilgan.\n"
+    "{variants}\n"
+    "Har maydon uchun variantlarni solishtir:\n"
+    "- Ko'pchilik variantda bir xil chiqqan qiymatni tanla.\n"
+    "- Variantlar FARQ qilsa yoki faqat bittasida uchrasa, baribir eng "
+    "ishonchlisini yoz, lekin o'sha maydonni uncertain_fields ga qo'sh.\n\n"
+    "Maydonlar:\n"
+    "jo'natuvchi -> sender_name, sender_phone, sender_address\n"
+    "qabul qiluvchi -> recipient_name, recipient_phone, recipient_address\n"
+    "jo'natma kodi -> tracking_number\n"
+    "og'irlik -> weight\n"
+    "xizmat turi -> service_type"
+)
