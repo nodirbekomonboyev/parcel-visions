@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parcel Vision — yorliqdan ma'lumot ajratish</title>
+<style>
+:root { --bg:#f6f8fa; --card:#fff; --line:#dfe5ec; --ink:#16202c; --muted:#5d6b7a;
+        --accent:#0f3d5c; --warn:#b26a00; --warnbg:#fff7e6; --err:#b3261e; }
+* { box-sizing:border-box }
+body { margin:0; font:15px/1.5 -apple-system,"Helvetica Neue",Arial,sans-serif;
+       background:var(--bg); color:var(--ink) }
+.wrap { max-width:960px; margin:0 auto; padding:28px 20px 60px }
+header { display:flex; justify-content:space-between; align-items:flex-end; gap:16px;
+         border-bottom:2px solid var(--accent); padding-bottom:12px; margin-bottom:22px; flex-wrap:wrap }
+h1 { margin:0; font-size:22px; color:var(--accent); letter-spacing:-.3px }
+.sub { color:var(--muted); font-size:13px; margin-top:3px }
+#health { font-size:12px; color:var(--muted); text-align:right; white-space:nowrap }
+.dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#9aa6b2; margin-right:5px }
+.dot.ok { background:#1f9d55 } .dot.bad { background:var(--err) }
+.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:18px }
+#drop { border:2px dashed var(--line); border-radius:10px; padding:34px 18px; text-align:center;
+        cursor:pointer; transition:.15s; background:var(--card) }
+#drop:hover,#drop.over { border-color:var(--accent); background:#eef4f8 }
+#drop b { color:var(--accent) }
+#drop small { display:block; color:var(--muted); margin-top:6px }
+#file { display:none }
+.row { display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap }
+#preview { max-width:260px; max-height:260px; border-radius:8px; border:1px solid var(--line) }
+table { width:100%; border-collapse:collapse; font-size:14px }
+td { padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top }
+td.k { color:var(--muted); width:190px; white-space:nowrap }
+td.v { font-weight:600 }
+td.v.empty { color:#9aa6b2; font-weight:400; font-style:italic }
+tr.uncertain td { background:var(--warnbg) }
+tr.uncertain td.v::after { content:" ⚠︎ tekshirilsin"; color:var(--warn); font-size:11px; font-weight:600 }
+.meta { font-size:12px; color:var(--muted); margin-top:12px; padding-top:10px; border-top:1px solid var(--line) }
+.err { background:#fdeceb; border:1px solid #f3c6c2; color:var(--err); padding:12px 14px; border-radius:8px }
+.spin { display:inline-block; width:14px; height:14px; border:2px solid var(--line);
+        border-top-color:var(--accent); border-radius:50%; animation:s .7s linear infinite; vertical-align:-2px }
+@keyframes s { to { transform:rotate(360deg) } }
+h2 { font-size:13px; text-transform:uppercase; letter-spacing:.8px; color:var(--accent); margin:0 0 10px }
+.hist { font-size:13px }
+.hist div { padding:7px 0; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; gap:12px }
+.hist span { color:var(--muted); white-space:nowrap }
+</style></head><body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Parcel Vision</h1>
+      <div class="sub">Pochta yorlig'i suratidan ma'lumotni avtomatik ajratib oladi</div>
+    </div>
+    <div id="health"><span class="dot"></span>tekshirilmoqda…</div>
+  </header>
+
+  <div id="drop">
+    <b>Yorliq suratini tashlang</b> yoki bosib tanlang
+    <small>JPEG · PNG · WebP — 8 MB gacha</small>
+    <input type="file" id="file" accept="image/jpeg,image/png,image/webp">
+  </div>
+
+  <div id="out"></div>
+
+  <div class="card">
+    <h2>Oxirgi natijalar</h2>
+    <div class="hist" id="hist">—</div>
+  </div>
+</div>
+
+<script>
+const FIELDS = [
+  ["tracking_number","Trek raqami"], ["recipient_name","Qabul qiluvchi"],
+  ["recipient_phone","Qabul qiluvchi telefoni"], ["recipient_address","Qabul qiluvchi manzili"],
+  ["sender_name","Jo'natuvchi"], ["sender_phone","Jo'natuvchi telefoni"],
+  ["sender_address","Jo'natuvchi manzili"], ["weight","Og'irlik"], ["service_type","Xizmat turi"],
+];
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function health() {
+  try {
+    const r = await fetch('/api/health'), j = await r.json();
+    $('#health').innerHTML = `<span class="dot ${j.provider_ready?'ok':'bad'}"></span>`
+      + `${esc(j.provider)} · ${esc(j.model)}`
+      + (j.provider_ready ? '' : ' — tayyor emas');
+  } catch { $('#health').innerHTML = '<span class="dot bad"></span>server javob bermadi'; }
+}
+
+function render(res, imgUrl) {
+  const unc = new Set(res.data.uncertain_fields || []);
+  const rows = FIELDS.map(([k, label]) => {
+    const v = res.data[k];
+    return `<tr class="${unc.has(k)?'uncertain':''}"><td class="k">${label}</td>`
+         + `<td class="v ${v?'':'empty'}">${v ? esc(v) : 'topilmadi'}</td></tr>`;
+  }).join('');
+  $('#out').innerHTML = `<div class="card"><div class="row">
+      <img id="preview" src="${imgUrl}" alt="yuklangan surat">
+      <div style="flex:1;min-width:300px"><table>${rows}</table>
+        <div class="meta">${esc(res.provider)} · ${esc(res.model)} · ${res.took_ms} ms
+          · ${res.data.filled_count ?? FIELDS.filter(([k])=>res.data[k]).length}/${FIELDS.length} maydon to'ldirildi</div>
+      </div></div></div>`;
+}
+
+async function upload(f) {
+  if (!f) return;
+  const imgUrl = URL.createObjectURL(f);
+  $('#out').innerHTML = `<div class="card"><span class="spin"></span> Model suratni o'qiyapti…</div>`;
+  const fd = new FormData(); fd.append('file', f);
+  try {
+    const r = await fetch('/api/extract', { method:'POST', body: fd });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+    render(j, imgUrl); hist();
+  } catch (e) {
+    $('#out').innerHTML = `<div class="card"><div class="err"><b>Ajratib bo'lmadi.</b> ${esc(e.message)}</div></div>`;
+  }
+}
+
+async function hist() {
+  try {
+    const r = await fetch('/api/extractions?limit=10'), j = await r.json();
+    $('#hist').innerHTML = j.length ? j.map(x =>
+      `<div><span>${esc(x.filename)}</span>
+       <span>${x.data.tracking_number ? esc(x.data.tracking_number) : '—'} · ${x.took_ms} ms</span></div>`).join('')
+      : '<div style="color:#5d6b7a">hali natija yo\'q</div>';
+  } catch {}
+}
+
+const drop = $('#drop'), file = $('#file');
+drop.onclick = () => file.click();
+file.onchange = e => upload(e.target.files[0]);
+['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => upload(e.dataTransfer.files[0]));
+health(); hist();
+</script>
+</body></html>

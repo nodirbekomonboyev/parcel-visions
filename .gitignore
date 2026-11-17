@@ -1,0 +1,10 @@
+.env
+data/
+__pycache__/
+*.pyc
+.venv/
+samples/*.jpg
+samples/*.jpeg
+samples/*.png
+!samples/.gitkeep
+.DS_Store
